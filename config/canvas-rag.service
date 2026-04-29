@@ -1,0 +1,28 @@
+# Canvas RAG Chatbot — systemd 서비스 파일
+#
+# 설치:
+#   sudo cp config/canvas-rag.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable canvas-rag
+#   sudo systemctl start canvas-rag
+
+[Unit]
+Description=Canvas RAG Chatbot API
+After=network.target ollama.service docker.service
+Requires=ollama.service docker.service
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/RAG_Chatbot
+EnvironmentFile=/home/%i/RAG_Chatbot/config/server.config
+ExecStartPre=/usr/bin/docker compose -f docker-compose.server.yml up -d qdrant
+ExecStart=/home/%i/.local/bin/uv run uvicorn src.api.main:app --host 0.0.0.0 --port 8080 --workers 1
+ExecStop=/bin/kill -TERM $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/%i/RAG_Chatbot/logs/api.log
+StandardError=append:/home/%i/RAG_Chatbot/logs/api.log
+
+[Install]
+WantedBy=multi-user.target

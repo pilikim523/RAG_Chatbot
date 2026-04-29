@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+*.egg-info/
+dist/
+build/
+
+# 환경변수 / 시크릿
+.env
+.env.*
+config/server.config
+*.key
+*.pem
+
+# 데이터 (대용량)
+data/raw_html/
+data/markdown/
+data/chunks/
+data/manifests/
+data/eval/reports/
+
+# Qdrant 로컬 스토리지 (서버에서 재색인)
+qdrant_storage/
+
+# Claude 메모리 (개인 설정)
+.claude/projects/
+
+# 평가 데이터셋 (golden QA는 커밋)
+# data/eval/canvas_golden_qa.jsonl → 포함
+
+# 로그
+logs/
+*.log
+nohup.out
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# uv
+.python-version
