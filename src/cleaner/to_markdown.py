@@ -167,19 +167,24 @@ def extract_nextjs_mdx(html_str: str) -> str | None:
 
     lines: list[str] = []
 
-    # Frontmatter description as intro
+    # Frontmatter title + description as intro
+    if frontmatter.get("title"):
+        lines.append(f"## {frontmatter['title']}")
+        lines.append("")
     if frontmatter.get("description"):
         lines.append(frontmatter["description"])
         lines.append("")
 
+    # Detect the MDX component variable letter — varies per page.
+    # Compiled MDX assigns a components object: let X={a:"a",h2:"h2",...}
+    comp_match = re.search(r'let ([a-zA-Z][a-zA-Z0-9_]*)=\{[^}]*h2:"h2"', code)
+    comp_var = re.escape(comp_match.group(1)) if comp_match else r"[a-zA-Z_][a-zA-Z0-9_]*"
+
     # Walk through code extracting heading/paragraph content in order.
-    # Pattern: jsx element tag followed by children string literal.
-    # e.g. (0,n.jsx)(e.h2,{...children:"Heading Text"...})
-    #      (0,n.jsx)(e.p,{children:"Paragraph text"})
-    token_re = re.compile(
-        r'e\.(h[1-6]|p|li|td|th|strong|code)(?:,|\b).*?children:"((?:[^"\\]|\\.){5,500})"',
-        re.DOTALL,
-    )
+    # Pattern: <comp_var>.TAGNAME followed by children string literal.
+    # Note: use raw string concat to avoid f-string brace collision with regex quantifiers.
+    _tag_pattern = comp_var + r'\.(h[1-6]|p|li|td|th|strong|code)(?:,|\b).*?children:"((?:[^"\\]|\\.)+)"'
+    token_re = re.compile(_tag_pattern, re.DOTALL)
 
     seen: set[str] = set()
     for match in token_re.finditer(code):
@@ -187,12 +192,11 @@ def extract_nextjs_mdx(html_str: str) -> str | None:
         text = match.group(2).replace('\\"', '"').replace("\\n", " ").strip()
         if not text or text in seen:
             continue
-        # Skip short fragments and strings without spaces (code tokens / IDs)
         is_heading = tag.startswith("h")
-        min_len = 8 if is_heading else 25
+        min_len = 8 if is_heading else 20
         if len(text) < min_len:
             continue
-        # Skip strings that look like code identifiers (no spaces, camelCase etc.)
+        # Skip strings without spaces unless they're headings
         if " " not in text and not is_heading:
             continue
         seen.add(text)
@@ -211,7 +215,7 @@ def extract_nextjs_mdx(html_str: str) -> str | None:
         else:
             lines.append(text)
 
-    if not lines:
+    if len(lines) <= 2:  # only frontmatter, no real content
         return None
     return "\n".join(lines)
 
