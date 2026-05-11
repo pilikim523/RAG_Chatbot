@@ -8,7 +8,7 @@ Domain = Literal["canvas", "internal", "general"]
 
 
 class ChatRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=2000)
+    query: str = Field(..., min_length=1, max_length=8000)
     role: str | None = Field(
         default=None,
         description="Canvas role filter for retrieval (student/instructor/admin/observer)",
@@ -17,7 +17,7 @@ class ChatRequest(BaseModel):
         default=None,
         description="Explicit domain override from UI selection",
     )
-    top_k: int = Field(default=5, ge=1, le=20)
+    top_k: int = Field(default=15, ge=1, le=30)
     session_id: str | None = Field(
         default=None,
         description="Conversation session ID for multi-turn chat. Omit to start a new session.",

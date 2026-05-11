@@ -106,17 +106,27 @@ class CanvasRetriever:
         query_vector = self._embedder.embed_one(query)
         qdrant_filter = _build_filter(role=role, category=category, product=product)
 
+        # 중복 문서 제거를 고려해 실제보다 더 많이 가져온 후 dedup
+        fetch_k = min(top_k * 3, 60)
         response = self._client.query_points(
             collection_name=self._collection,
             query=query_vector,
             query_filter=qdrant_filter,
-            limit=top_k,
+            limit=fetch_k,
             with_payload=True,
         )
         results = [SearchResult.from_qdrant_point(h) for h in response.points]
         if min_score is not None:
             results = [r for r in results if r.score >= min_score]
-        return results
+
+        # source_url 기준 dedup: 같은 문서에서 최고 점수 청크만 유지
+        seen_urls: dict[str, SearchResult] = {}
+        for r in results:
+            key = r.source_url
+            if key not in seen_urls or r.score > seen_urls[key].score:
+                seen_urls[key] = r
+        deduped = sorted(seen_urls.values(), key=lambda r: r.score, reverse=True)
+        return deduped[:top_k]
 
     def search_multi_role(
         self,

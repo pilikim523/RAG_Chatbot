@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from src.api.chat import ChatHandler, build_chat_handler
@@ -108,7 +108,10 @@ def verify_api_key(x_api_key: Annotated[str | None, Header()] = None) -> None:
 def index():
     html_path = _STATIC_DIR / "index.html"
     if html_path.exists():
-        return FileResponse(str(html_path))
+        return FileResponse(
+            str(html_path),
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+        )
     return {"message": "Canvas RAG Chatbot API", "docs": "/docs"}
 
 
@@ -142,6 +145,41 @@ def chat(request: ChatRequest) -> ChatResponse:
         )
     result = _handler.handle(request)
     return result
+
+
+@app.post("/chat/stream", dependencies=[Depends(verify_api_key)])
+def chat_stream(request: ChatRequest) -> StreamingResponse:
+    """SSE 스트리밍 채팅. 진행 상태·토큰·출처를 실시간으로 전달한다."""
+    if _session_store is None:
+        raise HTTPException(status_code=503, detail="Session store not initialized")
+    sid, ctx = _session_store.get_or_create(request.session_id)
+
+    def generate():
+        import json
+        for event_str in ctx.stream_chat(
+            query=request.query,
+            role=request.role,
+            force_domain=request.force_domain,
+            top_k=request.top_k,
+        ):
+            # done 이벤트에 session_id 주입
+            if '"type": "done"' in event_str:
+                raw = event_str.replace("data: ", "", 1).strip()
+                data = json.loads(raw)
+                data["session_id"] = sid
+                yield f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            else:
+                yield event_str
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @app.delete(

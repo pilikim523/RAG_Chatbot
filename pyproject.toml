@@ -17,6 +17,7 @@ dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     "tavily-python>=0.7.24",
+    "playwright>=1.59.0",
 ]
 
 [dependency-groups]

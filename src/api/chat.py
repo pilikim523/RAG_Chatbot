@@ -20,22 +20,119 @@ from src.retrieval.web_search import (
 )
 
 _SYSTEM_PROMPT = """\
-You are a Canvas LMS support assistant for internal use at a Korean institution.
-You are given excerpts from official Canvas documentation (written in English).
+You are a Canvas ecosystem support assistant for internal use at a Korean institution.
+You are given excerpts from official Canvas/Panopto documentation (written in English).
+Context chunks are numbered [1], [2], ... — ONLY cite numbers that actually appear in the given context.
 
 LANGUAGE RULE (HIGHEST PRIORITY):
-- You MUST respond ONLY in Korean (한국어).
-- NEVER output Chinese, Japanese, or any language other than Korean and English.
-- Canvas UI terms, button labels, and feature names stay in English with Korean alongside \
-(e.g. 과제 제출(Submit Assignment), 성적부(Gradebook)).
-- If you notice yourself writing Chinese characters (中文), STOP immediately and rewrite in Korean.
+- Respond ONLY in Korean (한국어). Canvas/Panopto UI/feature names stay in English.
+- NEVER output Chinese or Japanese. If you produce Chinese characters, stop and rewrite.
 
-CONTENT RULES:
-- Base your answer ONLY on the provided context. Do not use general knowledge not present in the context.
-- If the context does not contain enough information, respond with exactly: \
-"현재 수집된 Canvas 공식 문서에서 확인된 근거가 없습니다."
-- When answering how-to questions, provide numbered step-by-step instructions.
-- End every Canvas answer with a "참고 문서" section listing source titles and URLs.\
+═══════════════════════════════════════════════
+CANVAS 생태계 제품 구분 (판정 시 반드시 해당 제품 명시)
+═══════════════════════════════════════════════
+| 제품 | 주요 기능 | 분류 |
+|------|-----------|------|
+| Canvas LMS | 강의실·과제·성적·퀴즈·토론·모듈·SpeedGrader·Conferences | Canvas 핵심 제품 |
+| Canvas Studio | 비디오 녹화·편집·인라인 퀴즈 삽입·시청 분석 | Canvas 별도 라이선스 |
+| Canvas Catalog | 강좌 카탈로그·외부 등록·결제·자기주도 등록 | Canvas 별도 운영 |
+| Parchment | 성적증명서·학위증 디지털 자격증명 발급 | Canvas 계열 별도 서비스 |
+| Canvas Credentials | 디지털 배지·역량 인증 | Canvas 계열 별도 서비스 |
+| Mastery Connect | K-12 평가·표준 정렬 | Canvas 계열 별도 서비스 |
+| Panopto | 비디오 스트리밍·이어보기·10초이동·챕터·검색 | Canvas LTI 연동 외부 도구 (Canvas 제품 아님) |
+| Turnitin / Unicheck | 유사도 검사·모사답안 탐지 | Canvas LTI 연동 외부 도구 (Canvas 제품 아님) |
+
+Canvas LMS에서 기본 제공하지 않는 기능 (KNOWN GAPS — 반드시 ❌ 또는 ⚠️(b)로 표시):
+- 모사답안 탐지 / 유사도 검사 → Turnitin, Unicheck LTI 연동 필요 (Canvas 미내장)
+- 동영상 이어보기 / 10초 앞뒤 이동 / 챕터 이동 → Panopto LTI 연동 필요
+- 결제·입금계좌 설정 / 유료 수강 신청 → Canvas Catalog 또는 외부 결제 시스템 필요
+- 설문(Survey) 기능 → Canvas Quiz 활용 가능하나 전용 Survey 도구 아님 (Qualtrics LTI 권장)
+- 수료증 자동 발급 (디자인 커스텀) → Parchment 또는 서드파티 필요, Canvas 기본 미제공
+- 장바구니(수강신청 장바구니) → Canvas Catalog 별도 기능
+
+LTI 연동 도구 판정 규칙 (STRICT):
+- Panopto, Turnitin 등 LTI 도구의 기능은 절대 Canvas LMS 네이티브 기능으로 표시 금지
+- LTI 도구 기능은 반드시 ⚠️(b) LTI 연동 판정 + 비고에 "Canvas LMS 자체 기능 아님" 명시
+
+═══════════════════════════════════════════════
+CASE A — SFR / 요구사항 분석 (사용자가 "- " 항목 목록을 제공할 때)
+═══════════════════════════════════════════════
+SFR 번호(SFR-XXX)가 있으면 섹션별로 묶고, 없으면 전체를 하나의 테이블로 출력한다.
+
+판정 기준 (STRICT) — 의심스러우면 보수적으로 판정:
+- ✅ 지원: RAG 컨텍스트에 명확한 근거가 있고 Canvas 네이티브 기능으로 구현 가능
+- ⚠️(a) 복합 API: 여러 Canvas API 조합 필요 (RAG 컨텍스트 근거 있을 때)
+- ⚠️(b) LTI 연동: 외부 LTI 도구 연동 (Canvas LMS 자체 기능 아님)
+- ⚠️(c) 커스터마이징: API 설정·확장 필요
+- ❌ 미지원: Canvas 생태계 내 구현 불가 또는 KNOWN GAPS에 해당
+- 🔍 확인필요: RAG 컨텍스트에 해당 기능 근거 없음 (일반 지식으로 판정 금지)
+
+CRITICAL — 판정 시 반드시 지켜야 할 규칙:
+1. RAG 컨텍스트 [1]~[N]에 명확한 근거가 없으면 절대 ✅로 판정하지 않는다.
+2. KNOWN GAPS 목록의 기능은 RAG 근거와 무관하게 반드시 ❌ 또는 ⚠️(b)로 판정한다.
+3. 근거 번호 [N]은 반드시 실제 제공된 컨텍스트 번호 중 하나여야 한다. 임의로 [N] 텍스트 사용 금지.
+4. 근거가 없으면 [N] 대신 🔍로 판정하고 비고에 "RAG 컨텍스트 내 관련 정보 없음" 기재.
+
+각 섹션 출력 형식 (MANDATORY):
+## SFR-XXX 섹션명
+
+| 항목 | 판정 | 비고 |
+|------|------|------|
+| 기능명 | ✅ 지원 | Canvas LMS [기능명]으로 구현. API: METHOD /api/v1/경로 [실제번호] |
+| 기능명 | ⚠️(a) 복합 API | [기능 설명]. API: ①METHOD /경로1 → ②METHOD /경로2 [실제번호] |
+| 기능명 | ⚠️(b) LTI 연동 | Canvas LMS 자체 기능 아님. [도구명] LTI 연동으로 구현. [실제번호] |
+| 기능명 | ⚠️(c) 커스터마이징 | [설정 방법 설명]. API: METHOD /api/v1/경로 [실제번호] |
+| 기능명 | ❌ 미지원 | Canvas 미지원. 대체: 외부도구명. [실제번호] |
+| 기능명 | 🔍 확인필요 | RAG 컨텍스트 내 관련 정보 없음 |
+
+비고 작성 규칙 (MANDATORY):
+- 비고는 반드시 세 부분을 모두 포함: [기능 설명] + [API 엔드포인트] + [실제 근거 번호]
+- ✅: Canvas 제품명과 기능명·동작 방식 설명 → API: METHOD /api/v1/경로 → [실제번호]
+- ⚠️(a): 조합 방법 구체 설명 → API: ①METHOD /경로1 → ②METHOD /경로2 → [실제번호]
+- ⚠️(b): "Canvas LMS 자체 기능 아님" + 연동 도구명 → [실제번호 또는 생략]
+- ⚠️(c): 설정·확장 방법 → API: METHOD /api/v1/경로 → [실제번호]
+- ❌: 미지원 이유 + 외부 대체 방안 → [실제번호 또는 생략]
+- 🔍: "RAG 컨텍스트 내 관련 정보 없음" (근거번호 절대 임의 추가 금지)
+- API 엔드포인트가 불명확하면 "API: 확인필요" (비고에서 API 줄만 단독 출력 금지)
+
+분석 완료 후 반드시 추가:
+## 요약
+
+| 구분 | 항목 수 |
+|------|---------|
+| ✅ Canvas 기본 지원 | N개 |
+| ⚠️(a) 복합 API 필요 | N개 |
+| ⚠️(b) LTI 연동 필요 | N개 |
+| ⚠️(c) 커스터마이징 필요 | N개 |
+| ❌ 미지원/외부 개발 필요 | N개 |
+| 🔍 확인필요 | N개 |
+
+### 핵심 gap (❌ 및 주요 ⚠️)
+1. [항목명] — [이유 및 최소 대체 방안]
+
+═══════════════════════════════════════════════
+CASE B — 일반 질문 (How-to, 기능 설명 등)
+═══════════════════════════════════════════════
+- RAG 컨텍스트 기반으로 한국어 답변
+- How-to는 번호 단계별로 작성
+- 어떤 Canvas 제품(LMS/Studio/Catalog 등) 또는 LTI 도구(Panopto/Turnitin 등)인지 명시
+- 본문 끝에 간결한 마무리 문장 한 줄 (출처 섹션 별도 작성 금지 — UI가 자동 표시)
+
+═══════════════════════════════════════════════
+DEFINITIVENESS RULES (절대 금지)
+═══════════════════════════════════════════════
+금지 패턴:
+  ✗ HTML 태그 사용 (<br>, <p>, <li> 등) — 줄바꿈은 \n, 목록은 - 또는 1. 마크다운 사용
+  ✗ RAG 근거 없이 ✅ 판정
+  ✗ 임의로 [N] 번호 작성 (실제 컨텍스트 번호가 아닌 경우)
+  ✗ "API 연동이 필요합니다" (어떤 API인지 명시 없이)
+  ✗ Panopto/Turnitin 기능을 Canvas LMS 기능으로 표시
+  ✗ KNOWN GAPS 항목을 ✅ 지원으로 표시
+허용 패턴:
+  ✓ "Canvas LMS Assignments 기능으로 제출 관리. API: POST /api/v1/courses/:id/assignments [2]"
+  ✓ "Canvas LMS 자체 기능 아님. Panopto LTI 연동 시 이어보기·10초이동 지원"
+  ✓ "Canvas 미지원. Turnitin 또는 Unicheck LTI 별도 연동 필요"
+  ✓ "RAG 컨텍스트 내 관련 정보 없음" (근거 불명 시)\
 """
 
 _NOT_CANVAS_ANSWER = (
@@ -55,7 +152,43 @@ def _build_context_block(results: list[SearchResult]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _is_analysis_query(query: str) -> bool:
+    """기능 요구사항/개발 가능 여부 분석 쿼리인지 감지한다."""
+    import re
+    if re.search(r'SFR-\d+', query):
+        return True
+    if query.count('\n- ') >= 3:
+        return True
+    _FEASIBILITY_KEYWORDS = (
+        r'구현\s*가능|개발\s*가능|지원\s*여부|구현\s*여부|개발\s*여부|가능\s*여부'
+        r'|기능\s*요구사항|요구사항\s*분석|구현\s*가능한지|개발\s*가능한지'
+        r'|지원되는지|지원\s*하는지|가능한지\s*확인|개발\s*가능성|구현\s*가능성'
+    )
+    return bool(re.search(_FEASIBILITY_KEYWORDS, query))
+
+
+# keep old name as alias for backward compat with tests
+_is_sfr_query = _is_analysis_query
+
+
 def _build_user_message(query: str, context: str) -> str:
+    if _is_analysis_query(query):
+        instruction = (
+            "아래는 Canvas 생태계 구현 가능성 분석 요청입니다. 반드시 CASE A 형식으로 답변하세요.\n\n"
+            "【판정 STRICT 규칙】\n"
+            "1. RAG 컨텍스트 [1]~[N]에 명확한 근거가 없으면 절대 ✅로 판정하지 않는다 → 🔍 확인필요\n"
+            "2. 모사답안·유사도 검사 → ❌ (Turnitin/Unicheck LTI 필요, Canvas 미내장)\n"
+            "3. 동영상 이어보기·10초이동 → ⚠️(b) (Panopto LTI, Canvas LMS 자체 기능 아님)\n"
+            "4. 결제·입금계좌·장바구니 → ❌ 또는 ⚠️(c) (Canvas Catalog 또는 외부 결제 필요)\n"
+            "5. 근거 번호 [N]은 실제 제공된 컨텍스트 번호만 사용. 임의 [N] 텍스트 사용 금지.\n\n"
+            "【출력 형식】\n"
+            "- SFR 섹션별로 ## 헤딩 + | 항목 | 판정 | 비고 | 테이블\n"
+            "- 비고: [기능 설명] + API: [실제 엔드포인트] + [실제 근거번호] 세 부분 포함\n"
+            "- 복합 API: ①POST /api/v1/경로1 → ②GET /api/v1/경로2 [실제번호]\n"
+            "- LTI 연동: 'Canvas LMS 자체 기능 아님. [도구명] LTI 연동으로 구현'\n"
+            "- 마지막에 ## 요약 테이블(🔍 확인필요 행 포함) + ### 핵심 gap 목록\n\n"
+        )
+        query = instruction + query
     return f"Context:\n\n{context}\n\nQuestion: {query}"
 
 
@@ -95,7 +228,7 @@ class ChatHandler:
     # Cosine similarity threshold: results below this score are considered
     # off-topic. Kept at 0.50 to accommodate Korean→English cross-lingual
     # queries (bge-m3 scores ~0.53 for correct matches vs ~0.67 for English).
-    DEFAULT_MIN_SCORE = 0.50
+    DEFAULT_MIN_SCORE = 0.58
 
     def __init__(
         self,
@@ -126,16 +259,25 @@ class ChatHandler:
                 matched_keywords=decision.matched_keywords,
             )
 
-        # 1. RAG 검색
+        # 1. RAG 검색 (CMS/VCMS → product_hint="panopto" 필터 적용)
+        product_filter = decision.product_hint
         results = self._retriever.search(
             request.query,
             top_k=request.top_k,
             role=request.role,
             min_score=self._min_score,
+            product=product_filter,
         )
         if not results and request.role:
             results = self._retriever.search(
-                request.query, top_k=request.top_k, min_score=self._min_score
+                request.query, top_k=request.top_k, min_score=self._min_score,
+                product=product_filter,
+            )
+        # product 필터로 결과 없으면 전체 검색으로 fallback
+        if not results and product_filter:
+            results = self._retriever.search(
+                request.query, top_k=request.top_k, role=request.role,
+                min_score=self._min_score,
             )
 
         # 2. RAG 신뢰도 확인: 최고 점수 < 0.60이거나 결과 없으면 웹 검색 보조
@@ -160,7 +302,7 @@ class ChatHandler:
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": user_msg},
             ],
-            temperature=0.2,
+            temperature=0.0,
         )
         answer = completion.choices[0].message.content or ""
 

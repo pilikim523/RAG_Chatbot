@@ -19,8 +19,7 @@ case "${1:-help}" in
     tar -czf "$EXPORT_FILE" \
       data/manifests/ \
       data/chunks/ \
-      data/markdown/ \
-      --exclude='data/raw_html'  # HTML 원본 제외 (용량 절약)
+      data/markdown/
     SIZE=$(du -sh "$EXPORT_FILE" | cut -f1)
     echo "  → ${EXPORT_FILE} (${SIZE}) 생성 완료"
     echo ""

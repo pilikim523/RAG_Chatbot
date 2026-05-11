@@ -30,6 +30,7 @@ from src.api.chat import (
     _SYSTEM_PROMPT,
     _NOT_CANVAS_ANSWER,
     _build_context_block,
+    _is_analysis_query,
     _sources_from_results,
     _sources_from_web,
 )
@@ -74,7 +75,7 @@ class GooverContext:
     previous exchanges. Canvas retrieval is re-run on every user turn.
     """
 
-    DEFAULT_MIN_SCORE = 0.50
+    DEFAULT_MIN_SCORE = 0.58
 
     def __init__(
         self,
@@ -110,6 +111,10 @@ class GooverContext:
         turn_index = len([t for t in self._history if t.role == "user"])
         decision: RouteDecision = self._router.route(query, force_domain=force_domain)
 
+        # 멀티턴: 이미 Canvas 대화 이력이 있으면 팔로업 메시지도 Canvas로 유지
+        if not decision.is_canvas and self._history:
+            decision = RouteDecision(domain="canvas", matched_keywords=["(이전 대화 컨텍스트)"])
+
         if not decision.is_canvas:
             self._history.append(GooverTurn(role="user", content=query))
             self._history.append(GooverTurn(role="assistant", content=_NOT_CANVAS_ANSWER))
@@ -121,9 +126,12 @@ class GooverContext:
                 turn_index=turn_index,
             )
 
-        results = self._retriever.search(query, top_k=top_k, role=role, min_score=self._min_score)
+        product_filter = decision.product_hint
+        results = self._retriever.search(query, top_k=top_k, role=role, min_score=self._min_score, product=product_filter)
         if not results and role:
-            results = self._retriever.search(query, top_k=top_k, min_score=self._min_score)
+            results = self._retriever.search(query, top_k=top_k, min_score=self._min_score, product=product_filter)
+        if not results and product_filter:
+            results = self._retriever.search(query, top_k=top_k, role=role, min_score=self._min_score)
 
         # RAG 신뢰도 확인: 최고 점수 < 0.60이거나 결과 없으면 웹 검색 보조
         _WEB_FALLBACK_THRESHOLD = 0.60
@@ -144,7 +152,7 @@ class GooverContext:
         completion = self._llm.chat.completions.create(
             model=self._model,
             messages=messages,
-            temperature=0.2,
+            temperature=0.0,
         )
         answer = completion.choices[0].message.content or ""
 
@@ -160,6 +168,114 @@ class GooverContext:
             matched_keywords=decision.matched_keywords,
             turn_index=turn_index,
         )
+
+    def stream_chat(
+        self,
+        query: str,
+        role: str | None = None,
+        force_domain: Domain | None = None,
+        top_k: int = 15,
+    ):
+        """SSE 이벤트를 yield하는 동기 제너레이터.
+
+        각 이벤트는 ``data: {...}\\n\\n`` 형식의 SSE 문자열이다.
+        이벤트 타입:
+          - status       : 진행 상태 메시지
+          - source_found : 검색된 문서 1건
+          - token        : LLM 스트리밍 토큰
+          - done         : 최종 완료 (sources, domain 포함)
+        """
+        import json
+
+        def evt(data: dict) -> str:
+            return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+        yield evt({"type": "status", "message": "질문을 분석하고 있습니다..."})
+        decision: RouteDecision = self._router.route(query, force_domain=force_domain)
+
+        # 멀티턴: 이미 Canvas 대화 이력이 있으면 팔로업 메시지도 Canvas로 유지
+        if not decision.is_canvas and self._history:
+            decision = RouteDecision(domain="canvas", matched_keywords=["(이전 대화 컨텍스트)"])
+
+        if not decision.is_canvas:
+            self._history.append(GooverTurn(role="user", content=query))
+            self._history.append(GooverTurn(role="assistant", content=_NOT_CANVAS_ANSWER))
+            yield evt({
+                "type": "done",
+                "answer": _NOT_CANVAS_ANSWER,
+                "domain": decision.domain,
+                "sources": [],
+                "matched_keywords": decision.matched_keywords,
+            })
+            return
+
+        yield evt({"type": "status", "message": "Canvas 공식 문서에서 관련 내용을 검색하고 있습니다..."})
+        product_filter = decision.product_hint
+        results = self._retriever.search(query, top_k=top_k, role=role, min_score=self._min_score, product=product_filter)
+        if not results and role:
+            results = self._retriever.search(query, top_k=top_k, min_score=self._min_score, product=product_filter)
+        if not results and product_filter:
+            results = self._retriever.search(query, top_k=top_k, role=role, min_score=self._min_score)
+
+        for r in results:
+            yield evt({
+                "type": "source_found",
+                "title": r.title or "Canvas Guide",
+                "url": r.source_url,
+                "score": round(r.score, 3),
+            })
+
+        # Web search fallback
+        _WEB_FALLBACK_THRESHOLD = 0.60
+        from src.retrieval.web_search import WebSearchResult
+        best_rag_score = max((r.score for r in results), default=0.0)
+        web_results: list[WebSearchResult] = []
+        if self._web_searcher and best_rag_score < _WEB_FALLBACK_THRESHOLD:
+            yield evt({"type": "status", "message": "웹에서 추가 정보를 검색하고 있습니다..."})
+            web_results = self._web_searcher.search(query, top_k=top_k)
+
+        context_parts = []
+        if results:
+            context_parts.append(_build_context_block(results))
+        if web_results:
+            context_parts.append(build_web_context_block(web_results))
+        context_block = "\n\n---\n\n".join(context_parts) if context_parts else "(No relevant context found.)"
+
+        yield evt({"type": "status", "message": f"검색된 {len(results)}개 문서를 바탕으로 답변을 생성하고 있습니다..."})
+
+        messages = self._build_messages(query, context_block)
+        stream = self._llm.chat.completions.create(
+            model=self._model,
+            messages=messages,
+            temperature=0.0,
+            stream=True,
+        )
+
+        full_answer = ""
+        for chunk in stream:
+            token = chunk.choices[0].delta.content or ""
+            if token:
+                full_answer += token
+                yield evt({"type": "token", "content": token})
+
+        self._history.append(GooverTurn(role="user", content=query))
+        self._history.append(GooverTurn(role="assistant", content=full_answer))
+
+        sources = _sources_from_results(results) + _sources_from_web(web_results)
+        yield evt({
+            "type": "done",
+            "domain": decision.domain,
+            "matched_keywords": decision.matched_keywords,
+            "sources": [
+                {
+                    "title": s.title,
+                    "source_url": s.source_url,
+                    "score": s.score,
+                    "source_type": s.source_type,
+                }
+                for s in sources
+            ],
+        })
 
     def reset(self) -> None:
         """Clear conversation history."""
@@ -187,6 +303,19 @@ class GooverContext:
             msgs.append({"role": turn.role, "content": turn.content})
 
         # Current user turn with freshly retrieved context prepended
+        if _is_analysis_query(query):
+            instruction = (
+                "아래는 Canvas 생태계 구현 가능성 분석 요청입니다.\n"
+                "반드시 CASE A 형식으로 답변하세요:\n"
+                "- SFR 섹션별로 ## 헤딩 + | 항목 | 판정 | 비고 | 테이블 출력\n"
+                "- 판정: ✅ 지원 / ⚠️(a) 복합 API / ⚠️(b) LTI 연동 / ⚠️(c) 커스터마이징 / ❌ 미지원 / 🔍 확인필요\n"
+                "- 비고: [기능 설명] + [API 엔드포인트] + [근거번호] 세 부분 반드시 포함\n"
+                "- 복합 API 예시: ①POST /api/v1/courses/:id/assignments → ②GET /api/v1/courses/:id/sections [N]\n"
+                "- LTI 연동 예시: Canvas LMS 자체 기능 아님. Panopto LTI 연동으로 이어보기 지원 [N]\n"
+                "- Panopto/Turnitin 등 LTI 도구 기능은 절대 Canvas LMS 네이티브 기능으로 표시 금지\n"
+                "- 마지막에 ## 요약 테이블(⚠️(b) LTI 연동 필요 행 포함) + ### 핵심 gap 목록\n\n"
+            )
+            query = instruction + query
         user_content = f"Context:\n\n{context_block}\n\nQuestion: {query}"
         msgs.append({"role": "user", "content": user_content})
         return msgs
