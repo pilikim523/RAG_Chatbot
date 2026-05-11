@@ -366,8 +366,11 @@ const overlayEl   = document.getElementById('overlay');
 // ══════════════════════════════════════════════
 // API helpers
 // ══════════════════════════════════════════════
+const API_KEY = '687ac02704a264887d6cfbcc4c271c4b134e72a808db3f904f54135689da15f0';
+const authHeaders = { 'X-API-Key': API_KEY };
+
 async function apiGet(path) {
-  const r = await fetch(path);
+  const r = await fetch(path, { headers: authHeaders });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
@@ -462,7 +465,7 @@ async function selectSession(id) {
 
 async function deleteSession(e, id) {
   e.stopPropagation();
-  try { await fetch(`/chat/session/${id}`, { method: 'DELETE' }); } catch {}
+  try { await fetch(`/chat/session/${id}`, { method: 'DELETE', headers: authHeaders }); } catch {}
   if (id === currentSessionId) {
     currentSessionId = null;
     localStorage.removeItem('canvas-rag-session');
@@ -591,7 +594,7 @@ async function sendMessage() {
   try {
     const res = await fetch('/chat/stream', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ query, role, session_id: currentSessionId, top_k: 15 }),
       signal: controller.signal,
     });
