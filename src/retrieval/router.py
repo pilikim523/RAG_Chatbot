@@ -39,6 +39,10 @@ _CANVAS_KEYWORDS_EN: frozenset[str] = frozenset({
     "lti", "sis", "commons", "catalog",
     # Sub-products
     "canvas studio", "canvas catalog", "canvas commons",
+    # Assignment date terminology
+    "due date", "availability date", "available from", "available until",
+    "lock date", "unlock date", "late submission", "late policy",
+    "peer review", "attempt", "resubmit", "resubmission",
     # Actions common in Canvas context
     "submit", "publish", "unpublish", "mastery", "outcome",
     "blueprint", "import", "export",
@@ -64,6 +68,11 @@ _CANVAS_KEYWORDS_KO: frozenset[str] = frozenset({
     "토론", "공지", "공지사항", "달력",
     "제출", "출석", "평가",
     "등록", "수강",
+    # 날짜/마감 관련
+    "마감일", "마감 날짜", "마감날짜", "제출 마감", "제출마감",
+    "이용 가능", "잠금 날짜", "열람 가능", "공개일",
+    "지각 제출", "늦은 제출", "재제출",
+    "동료 평가", "피어 리뷰",
     # 개발자/API 관련
     "인증", "액세스 토큰", "엔드포인트", "웹훅",
     "데이터 접근", "데이터 동기화", "페이지네이션",
