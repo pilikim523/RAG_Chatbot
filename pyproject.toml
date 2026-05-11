@@ -17,6 +17,8 @@ dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     "tavily-python>=0.7.24",
+    "psycopg2-binary>=2.9.0",
+    "python-dotenv>=1.0.0",
     "playwright>=1.59.0",
 ]
 

@@ -17,8 +17,12 @@ LLM_PROVIDER=ollama
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=qwen2.5-128k        # 128k context (ollama create qwen2.5-128k -f Modelfile)
 
-# ── 웹 검색 Fallback (Tavily) ───────────────────────────────────────────────
-TAVILY_API_KEY=여기에_API_키_입력
+# ── PostgreSQL (세션 히스토리) ─────────────────────────────────────────────
+DATABASE_URL=postgresql://chatbot:chatbot@localhost:5433/chatbot
+
+# ── 웹 검색 (SearXNG 우선, Tavily fallback) ────────────────────────────────
+SEARXNG_URL=http://localhost:8888
+TAVILY_API_KEY=
 
 # ── API 보안 ────────────────────────────────────────────────────────────────
 API_KEY=

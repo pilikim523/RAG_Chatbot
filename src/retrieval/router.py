@@ -5,7 +5,9 @@ Domains
 -------
 canvas   : Route to Canvas RAG retriever first.
 internal : Route to internal policy/operations documents (future).
-general  : No RAG context; answer with LLM general knowledge.
+web      : General web search via SearXNG (non-Canvas factual questions).
+casual   : Direct LLM — greetings, meta questions, light conversation.
+general  : Legacy alias for web (backward compatibility).
 
 Priority
 --------
@@ -13,7 +15,8 @@ Priority
 2. "canvas" literal present anywhere → canvas.
 3. Canvas keyword match (EN or KO) → canvas.
 4. CMS / VCMS keyword → canvas + product_hint="panopto" (Canvas Studio override if explicit).
-5. Everything else → general  (internal reserved for future integration).
+5. Casual pattern match → casual.
+6. Everything else → web.
 """
 from __future__ import annotations
 
@@ -21,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-Domain = Literal["canvas", "internal", "general"]
+Domain = Literal["canvas", "internal", "general", "web", "casual"]
 
 # ---------------------------------------------------------------------------
 # Keyword sets
@@ -91,6 +94,21 @@ _CMS_PATTERN = re.compile(r"(?<![a-zA-Z0-9])(vcms|cms)(?![a-zA-Z0-9])", re.IGNOR
 # Canvas Studio 명시 패턴
 _CANVAS_STUDIO_PATTERN = re.compile(r"canvas\s+studio", re.IGNORECASE)
 
+# 일상 대화 / 인사 / 메타 질문 패턴
+_CASUAL_PATTERN = re.compile(
+    r"^(안녕|hi\b|hello\b|hey\b|반가워|고마워|고맙|감사합니다|감사해|수고|잘가|ㅋㅋ+|ㅎㅎ+|ㅠ+|ㅜ+|ㅇㅇ|넵|오케|ok\b)"
+    r"|뭘\s*(할\s*줄|할\s*수|도와\s*줄)"
+    r"|너는?\s*(뭐야?|누구야?|어떤|어때)"
+    r"|당신은?\s*(누구|뭐야?)"
+    r"|무슨\s*일\s*(해|하는)",
+    re.IGNORECASE,
+)
+
+# 캔버스 대화 이어가기용 후속 질문 패턴 (짧은 참조 표현)
+_CANVAS_FOLLOWUP_PATTERN = re.compile(
+    r"^(그|이|저|그것|이것|저것|그러면|그래서|그럼|그건|이건|그렇다면|방금|아까|거기서|그\s*방법|위에서|앞에서)"
+)
+
 # EN: ASCII word boundary (not preceded/followed by [a-zA-Z0-9]).
 # Using \b would treat Korean chars as \w in Python 3 Unicode mode,
 # preventing matches like "Canvas에서". ASCII lookaround avoids this.
@@ -132,10 +150,13 @@ class DomainRouter:
         self,
         query: str,
         force_domain: Domain | None = None,
+        has_canvas_history: bool = False,
     ) -> RouteDecision:
         """Return routing decision for query.
 
         force_domain: explicit UI selection — overrides keyword detection.
+        has_canvas_history: True when the session already has Canvas turns.
+          Short follow-up queries in a Canvas session stay routed to Canvas.
         CMS/VCMS → product_hint="panopto" unless "Canvas Studio" is explicitly mentioned.
         """
         if force_domain:
@@ -151,7 +172,14 @@ class DomainRouter:
                 product_hint=product_hint,
             )
 
-        return RouteDecision(domain="general")
+        # Canvas 대화 중 짧은 후속 질문은 Canvas로 유지
+        if has_canvas_history and _is_canvas_followup(query):
+            return RouteDecision(domain="canvas", matched_keywords=["(이전 대화 컨텍스트)"])
+
+        if _is_casual(query):
+            return RouteDecision(domain="casual")
+
+        return RouteDecision(domain="web")
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +210,17 @@ def _detect_product_hint(query: str) -> str | None:
             return "canvas"
         return "panopto"
     return None
+
+
+def _is_casual(query: str) -> bool:
+    """인사, 메타 질문, 짧은 반응 등 일상 대화 감지."""
+    return bool(_CASUAL_PATTERN.search(query.strip()))
+
+
+def _is_canvas_followup(query: str) -> bool:
+    """Canvas 대화 이력이 있을 때 후속 참조 표현 감지 (짧고 지시어로 시작)."""
+    q = query.strip()
+    return len(q) < 30 and bool(_CANVAS_FOLLOWUP_PATTERN.match(q))
 
 
 def route_query(query: str, force_domain: Domain | None = None) -> RouteDecision:
