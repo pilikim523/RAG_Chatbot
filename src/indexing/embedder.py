@@ -1,10 +1,11 @@
 """
-Stage 4a: Text embedding with MPS-first strategy.
+Stage 4a: Text embedding with GPU-first strategy.
 
 Priority:
-  1. SentenceTransformers on MPS (Apple Silicon)
-  2. SentenceTransformers on CPU
-  3. OpenAI text-embedding-3-small (fallback / when ST not installed)
+  1. SentenceTransformers on CUDA (Linux/Windows with NVIDIA GPU)
+  2. SentenceTransformers on MPS (Apple Silicon)
+  3. SentenceTransformers on CPU
+  4. OpenAI text-embedding-3-small (fallback / when ST not installed)
 """
 from __future__ import annotations
 
@@ -38,6 +39,14 @@ class BaseEmbedder(ABC):
 # MPS / CPU SentenceTransformers
 # ---------------------------------------------------------------------------
 
+def _cuda_available() -> bool:
+    try:
+        import torch
+        return torch.cuda.is_available()
+    except Exception:
+        return False
+
+
 def _mps_available() -> bool:
     try:
         import torch
@@ -63,7 +72,14 @@ class MpsEmbedder(BaseEmbedder):
     def _st_model(self) -> Any:
         if self.__model is None:
             from sentence_transformers import SentenceTransformer
-            device = "mps" if _mps_available() else "cpu"
+            if _cuda_available():
+                device = "cuda"
+            elif _mps_available():
+                device = "mps"
+            else:
+                device = "cpu"
+            import logging
+            logging.getLogger(__name__).info("SentenceTransformer device: %s", device)
             self.__model = SentenceTransformer(self._model_name, device=device)
         return self.__model
 
