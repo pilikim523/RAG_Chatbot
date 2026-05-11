@@ -24,7 +24,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
-Domain = Literal["canvas", "internal", "general", "web", "casual"]
+Domain = Literal["canvas", "zoom", "internal", "general", "web", "casual"]
 
 # ---------------------------------------------------------------------------
 # Keyword sets
@@ -88,6 +88,34 @@ _CANVAS_KEYWORDS_KO: frozenset[str] = frozenset({
     "스트리밍", "라이브",
     "캡처", "화면캡처",
 })
+
+_ZOOM_KEYWORDS_EN: frozenset[str] = frozenset({
+    "zoom", "zoom api", "zoom sdk", "zoom oauth",
+    "zoom meeting", "zoom webinar", "zoom phone", "zoom chat", "zoom rooms",
+    "zoom video sdk", "zoom meeting sdk", "zoom app",
+    "zoom marketplace", "zoom webhook", "zoom events",
+    "zoom recording", "zoom participant", "zoom host",
+    "server-to-server oauth", "zoom jwt",
+    "zoom rest api", "zoom graphql",
+    "meeting id", "zoom link",
+})
+_ZOOM_KEYWORDS_KO: frozenset[str] = frozenset({
+    "줌", "줌 api", "줌 sdk", "줌 oauth",
+    "줌 미팅", "줌 웨비나", "줌 폰", "줌 채팅",
+    "줌 녹화", "줌 참가자", "줌 호스트",
+    "줌 마켓플레이스", "줌 앱",
+    "화상회의", "소회의실", "대기실",
+})
+
+_ZOOM_EN_PATTERN = re.compile(
+    r"(?<![a-zA-Z0-9])("
+    + "|".join(re.escape(k) for k in sorted(_ZOOM_KEYWORDS_EN, key=len, reverse=True))
+    + r")(?![a-zA-Z0-9])",
+    re.IGNORECASE,
+)
+_ZOOM_KO_PATTERN = re.compile(
+    "(" + "|".join(re.escape(k) for k in sorted(_ZOOM_KEYWORDS_KO, key=len, reverse=True)) + ")",
+)
 
 # CMS/VCMS 키워드 패턴 (단어 경계, 대소문자 무시)
 _CMS_PATTERN = re.compile(r"(?<![a-zA-Z0-9])(vcms|cms)(?![a-zA-Z0-9])", re.IGNORECASE)
@@ -162,15 +190,26 @@ class DomainRouter:
         if force_domain:
             return RouteDecision(domain=force_domain, forced=True)
 
-        matched = _detect_canvas_keywords(query)
+        canvas_matched = _detect_canvas_keywords(query)
+        zoom_matched = _detect_zoom_keywords(query)
         product_hint = _detect_product_hint(query)
 
-        if matched:
+        # Zoom 키워드가 있고 "canvas"/"캔버스"가 명시되지 않으면 zoom 우선.
+        # e.g. "zoom api rate limits" → zoom / "Canvas zoom integration" → canvas
+        if zoom_matched and canvas_matched:
+            has_explicit_canvas = any(k in {"canvas", "캔버스"} for k in canvas_matched)
+            if not has_explicit_canvas:
+                return RouteDecision(domain="zoom", matched_keywords=zoom_matched)
+
+        if canvas_matched:
             return RouteDecision(
                 domain="canvas",
-                matched_keywords=matched,
+                matched_keywords=canvas_matched,
                 product_hint=product_hint,
             )
+
+        if zoom_matched:
+            return RouteDecision(domain="zoom", matched_keywords=zoom_matched)
 
         # Canvas 대화 중 짧은 후속 질문은 Canvas로 유지
         if has_canvas_history and _is_canvas_followup(query):
@@ -194,6 +233,22 @@ def _detect_canvas_keywords(query: str) -> list[str]:
     for m in _KO_PATTERN.finditer(query):
         found.append(m.group(0))
     # Deduplicate while preserving first-occurrence order
+    seen: set[str] = set()
+    unique: list[str] = []
+    for kw in found:
+        if kw not in seen:
+            seen.add(kw)
+            unique.append(kw)
+    return unique
+
+
+def _detect_zoom_keywords(query: str) -> list[str]:
+    """Return list of matched Zoom keywords (empty = not a Zoom query)."""
+    found: list[str] = []
+    for m in _ZOOM_EN_PATTERN.finditer(query):
+        found.append(m.group(0).lower())
+    for m in _ZOOM_KO_PATTERN.finditer(query):
+        found.append(m.group(0))
     seen: set[str] = set()
     unique: list[str] = []
     for kw in found:

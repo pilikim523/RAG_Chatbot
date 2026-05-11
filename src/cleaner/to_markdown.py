@@ -51,6 +51,9 @@ _NOISE_SELECTORS = [
     ".lia-feedback-toggle", ".lia-button-group",
     "[aria-hidden='true']",
     ".social-share", ".page-footer", ".site-footer",
+    # Zoom developer docs navigation noise
+    ".sidebar", ".left-nav", ".right-nav", ".docs-sidebar",
+    ".breadcrumbs", ".feedback-section", ".page-navigation",
     # GitBook navigation / chrome noise
     "nav", "aside", "header", "footer",
     "[data-testid='page.desktopTableOfContents']",
@@ -65,6 +68,12 @@ _NOISE_SELECTORS = [
 _CONTENT_SELECTORS = [
     # GitBook primary content pane
     "[data-testid='page.contentEditor']",
+    # Zoom developer docs (developers.zoom.us)
+    ".docs-page-content",
+    ".markdown-body",
+    ".docs-content",
+    "[data-testid='page-content']",
+    ".content-wrapper",
     # Generic semantic elements (work for both GitBook <main> and community <article>)
     "article.userContent",
     "article.seoSectionPiece",

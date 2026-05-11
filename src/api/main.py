@@ -78,8 +78,18 @@ async def lifespan(app: FastAPI):
     )
     _handler = build_chat_handler(retriever)
 
+    try:
+        zoom_retriever = get_retriever(
+            qdrant_url=os.environ.get("QDRANT_URL", "http://localhost:6333"),
+            collection="zoom_docs",
+            embedder_prefer=os.environ.get("EMBEDDING_PROVIDER", "auto"),
+            openai_api_key=os.environ.get("OPENAI_API_KEY"),
+        )
+    except Exception:
+        zoom_retriever = None
+
     def _ctx_factory() -> GooverContext:
-        return build_context(_retriever=retriever)
+        return build_context(_retriever=retriever, _zoom_retriever=zoom_retriever)
 
     _session_store = SessionStore(factory=_ctx_factory, max_sessions=200)
     yield

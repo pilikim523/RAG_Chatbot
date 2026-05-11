@@ -30,6 +30,7 @@ from src.api.chat import (
     _SYSTEM_PROMPT,
     _WEB_SYSTEM_PROMPT,
     _CASUAL_SYSTEM_PROMPT,
+    _ZOOM_SYSTEM_PROMPT,
     _NOT_CANVAS_ANSWER,
     _build_context_block,
     _is_analysis_query,
@@ -88,6 +89,7 @@ class GooverContext:
         max_history_turns: int = 10,
         min_score: float = DEFAULT_MIN_SCORE,
         web_searcher: TavilySearcher | None = None,
+        zoom_retriever: CanvasRetriever | None = None,
     ) -> None:
         self._retriever = retriever
         self._llm = llm_client
@@ -96,6 +98,7 @@ class GooverContext:
         self._max_history = max_history_turns
         self._min_score = min_score
         self._web_searcher = web_searcher
+        self._zoom_retriever = zoom_retriever
         self._history: list[GooverTurn] = []
 
     # ------------------------------------------------------------------
@@ -155,6 +158,26 @@ class GooverContext:
                 answer=answer, domain=decision.domain,
                 sources=_sources_from_web(web_results),
                 matched_keywords=[], turn_index=turn_index,
+            )
+
+        # ── Zoom RAG ───────────────────────────────────────────────────
+        if decision.domain == "zoom" and self._zoom_retriever is not None:
+            results = self._zoom_retriever.search(query, top_k=top_k, min_score=self._min_score)
+            context_block = _build_context_block(results) if results else "(No relevant Zoom docs found.)"
+            msgs = [{"role": "system", "content": _ZOOM_SYSTEM_PROMPT}]
+            for t in self._history[-(self._max_history * 2):]:
+                msgs.append({"role": t.role, "content": t.content})
+            msgs.append({"role": "user", "content": f"Context:\n\n{context_block}\n\nQuestion: {query}"})
+            completion = self._llm.chat.completions.create(model=self._model, messages=msgs, temperature=0.0)
+            answer = completion.choices[0].message.content or ""
+            self._history.append(GooverTurn(role="user", content=query))
+            self._history.append(GooverTurn(role="assistant", content=answer))
+            return GooverResponse(
+                answer=answer,
+                domain=decision.domain,
+                sources=_sources_from_results(results),
+                matched_keywords=decision.matched_keywords,
+                turn_index=turn_index,
             )
 
         # ── Canvas RAG ─────────────────────────────────────────────────
@@ -294,6 +317,37 @@ class GooverContext:
             yield _emit_done(full_answer, "web", _sources_from_web(web_results), [])
             return
 
+        # ── Zoom RAG ──────────────────────────────────────────────────
+        if decision.domain == "zoom" and self._zoom_retriever is not None:
+            yield evt({"type": "status", "message": "Zoom 공식 개발자 문서에서 관련 내용을 검색하고 있습니다..."})
+            results = self._zoom_retriever.search(query, top_k=top_k, min_score=self._min_score)
+            for r in results:
+                yield evt({
+                    "type": "source_found",
+                    "title": r.title or "Zoom Docs",
+                    "url": r.source_url,
+                    "score": round(r.score, 3),
+                })
+            context_block = _build_context_block(results) if results else "(No relevant Zoom docs found.)"
+            yield evt({"type": "status", "message": f"검색된 {len(results)}개 문서를 바탕으로 답변을 생성하고 있습니다..."})
+            msgs = [{"role": "system", "content": _ZOOM_SYSTEM_PROMPT}]
+            for t in self._history[-(self._max_history * 2):]:
+                msgs.append({"role": t.role, "content": t.content})
+            msgs.append({"role": "user", "content": f"Context:\n\n{context_block}\n\nQuestion: {query}"})
+            stream = self._llm.chat.completions.create(
+                model=self._model, messages=msgs, temperature=0.0, stream=True,
+            )
+            full_answer = ""
+            for chunk in stream:
+                token = chunk.choices[0].delta.content or ""
+                if token:
+                    full_answer += token
+                    yield evt({"type": "token", "content": token})
+            self._history.append(GooverTurn(role="user", content=query))
+            self._history.append(GooverTurn(role="assistant", content=full_answer))
+            yield _emit_done(full_answer, "zoom", _sources_from_results(results), decision.matched_keywords)
+            return
+
         # ── Canvas RAG ────────────────────────────────────────────────
         yield evt({"type": "status", "message": "Canvas 공식 문서에서 관련 내용을 검색하고 있습니다..."})
         product_filter = decision.product_hint
@@ -408,10 +462,11 @@ def build_context(
     max_history_turns: int = 10,
     _retriever: CanvasRetriever | None = None,
     _llm_client: Any = None,
+    _zoom_retriever: CanvasRetriever | None = None,
 ) -> GooverContext:
     """Build a GooverContext from environment variables.
 
-    Injection parameters (_retriever, _llm_client) are provided for tests.
+    Injection parameters (_retriever, _llm_client, _zoom_retriever) are provided for tests.
     """
     retriever = _retriever or get_retriever(
         qdrant_url=qdrant_url or os.environ.get("QDRANT_URL", "http://localhost:6333"),
@@ -419,6 +474,19 @@ def build_context(
         embedder_prefer=os.environ.get("EMBEDDING_PROVIDER", "auto"),
         openai_api_key=os.environ.get("OPENAI_API_KEY"),
     )
+
+    if _zoom_retriever is not None:
+        zoom_retriever: CanvasRetriever | None = _zoom_retriever
+    else:
+        try:
+            zoom_retriever = get_retriever(
+                qdrant_url=qdrant_url or os.environ.get("QDRANT_URL", "http://localhost:6333"),
+                collection="zoom_docs",
+                embedder_prefer=os.environ.get("EMBEDDING_PROVIDER", "auto"),
+                openai_api_key=os.environ.get("OPENAI_API_KEY"),
+            )
+        except Exception:
+            zoom_retriever = None
 
     if _llm_client is not None:
         llm_client = _llm_client
@@ -439,4 +507,5 @@ def build_context(
         llm_model=model,
         max_history_turns=max_history_turns,
         web_searcher=get_web_searcher(),
+        zoom_retriever=zoom_retriever,
     )
