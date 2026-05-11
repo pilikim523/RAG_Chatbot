@@ -18,9 +18,14 @@ developerdocs.instructure.com (GitBook):
   2. <main>                              (GitBook semantic main)
   3. <article>                           (generic fallback)
   4. <body>                              (last resort)
+
+developers.zoom.us (Next.js SSG with compiled MDX):
+  1. __NEXT_DATA__ JSON → pageProps.mainContent.code (compiled JSX)
+     Text extracted from JSX children string literals with heading detection.
 """
 from __future__ import annotations
 
+import json
 import re
 import textwrap
 from datetime import datetime, timezone
@@ -135,8 +140,97 @@ def clean_markdown(raw: str) -> str:
     return text.strip()
 
 
+def extract_nextjs_mdx(html_str: str) -> str | None:
+    """Extract text content from Next.js pages with compiled MDX in __NEXT_DATA__.
+
+    developers.zoom.us pages embed compiled JSX in pageProps.mainContent.code.
+    We extract string literals with heading structure detection.
+    Returns Markdown string or None if not a Next.js MDX page.
+    """
+    m = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html_str, re.DOTALL,
+    )
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(1))
+        mc = data.get("props", {}).get("pageProps", {}).get("mainContent")
+        if not mc or not isinstance(mc, dict):
+            return None
+        code = mc.get("code", "")
+        frontmatter = mc.get("frontmatter", {})
+        if not code:
+            return None
+    except (json.JSONDecodeError, AttributeError):
+        return None
+
+    lines: list[str] = []
+
+    # Frontmatter description as intro
+    if frontmatter.get("description"):
+        lines.append(frontmatter["description"])
+        lines.append("")
+
+    # Walk through code extracting heading/paragraph content in order.
+    # Pattern: jsx element tag followed by children string literal.
+    # e.g. (0,n.jsx)(e.h2,{...children:"Heading Text"...})
+    #      (0,n.jsx)(e.p,{children:"Paragraph text"})
+    token_re = re.compile(
+        r'e\.(h[1-6]|p|li|td|th|strong|code)(?:,|\b).*?children:"((?:[^"\\]|\\.){5,500})"',
+        re.DOTALL,
+    )
+
+    seen: set[str] = set()
+    for match in token_re.finditer(code):
+        tag = match.group(1)
+        text = match.group(2).replace('\\"', '"').replace("\\n", " ").strip()
+        if not text or text in seen:
+            continue
+        # Skip short fragments and strings without spaces (code tokens / IDs)
+        is_heading = tag.startswith("h")
+        min_len = 8 if is_heading else 25
+        if len(text) < min_len:
+            continue
+        # Skip strings that look like code identifiers (no spaces, camelCase etc.)
+        if " " not in text and not is_heading:
+            continue
+        seen.add(text)
+        if tag == "h1":
+            lines.append(f"# {text}")
+        elif tag == "h2":
+            lines.append(f"## {text}")
+        elif tag == "h3":
+            lines.append(f"### {text}")
+        elif tag in ("h4", "h5", "h6"):
+            lines.append(f"#### {text}")
+        elif tag == "li":
+            lines.append(f"- {text}")
+        elif tag == "code":
+            lines.append(f"`{text}`")
+        else:
+            lines.append(text)
+
+    if not lines:
+        return None
+    return "\n".join(lines)
+
+
 def html_to_markdown(html_str: str, title: str | None, source_url: str) -> str:
     """Full pipeline: parse → extract → strip → convert → clean → wrap."""
+    # Try Next.js MDX extraction first (developers.zoom.us)
+    nextjs_content = extract_nextjs_mdx(html_str)
+    if nextjs_content:
+        parts: list[str] = []
+        if title:
+            parts.append(f"# {title}")
+            parts.append("")
+        parts.append(nextjs_content)
+        parts.append("")
+        parts.append("---")
+        parts.append(f"**Source:** <{source_url}>")
+        return clean_markdown("\n".join(parts))
+
     soup = BeautifulSoup(html_str, "lxml")
     article = extract_article(soup)
     if article is None:
