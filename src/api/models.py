@@ -4,9 +4,9 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 from typing import Literal
 
-Domain = Literal["canvas", "internal", "general", "web", "casual"]
-# UI에서 강제 지정 가능한 도메인 (canvas/general/internal 3종)
-ForceDomain = Literal["canvas", "internal", "general"]
+Domain = Literal["canvas", "zoom", "internal", "general", "web", "casual"]
+# UI에서 강제 지정 가능한 도메인
+ForceDomain = Literal["canvas", "zoom", "internal", "general"]
 
 
 class ChatRequest(BaseModel):
