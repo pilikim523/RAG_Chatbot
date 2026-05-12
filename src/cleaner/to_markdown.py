@@ -140,6 +140,37 @@ def clean_markdown(raw: str) -> str:
     return text.strip()
 
 
+def extract_page_title(html_str: str) -> str | None:
+    """Extract page title from HTML. Tries __NEXT_DATA__ frontmatter, then <title> tag."""
+    # 1. Next.js __NEXT_DATA__ frontmatter.title (highest quality)
+    m = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        html_str, re.DOTALL,
+    )
+    if m:
+        try:
+            data = json.loads(m.group(1))
+            mc = data.get("props", {}).get("pageProps", {}).get("mainContent")
+            if mc and isinstance(mc, dict):
+                title = mc.get("frontmatter", {}).get("title")
+                if title:
+                    return str(title).strip()
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
+    # 2. HTML <title> tag — strip common suffixes like " | Zoom", " - Docs"
+    soup = BeautifulSoup(html_str, "lxml")
+    tag = soup.find("title")
+    if tag and tag.get_text(strip=True):
+        raw = tag.get_text(strip=True)
+        for sep in (" | ", " - ", " – ", " — "):
+            if sep in raw:
+                raw = raw.split(sep)[0]
+        return raw.strip() or None
+
+    return None
+
+
 def extract_nextjs_mdx(html_str: str) -> str | None:
     """Extract text content from Next.js pages with compiled MDX in __NEXT_DATA__.
 
@@ -293,7 +324,9 @@ def process_entry(
 
     try:
         html = html_path.read_text(encoding="utf-8")
-        markdown = html_to_markdown(html, entry.title, entry.source_url)
+        # title이 없으면 HTML에서 추출
+        title = entry.title or extract_page_title(html)
+        markdown = html_to_markdown(html, title, entry.source_url)
         if not markdown.strip():
             return entry.model_copy(update={
                 "clean_status": "failed",
@@ -307,6 +340,7 @@ def process_entry(
 
         return entry.model_copy(update={
             "clean_status": "cleaned",
+            "title": title,
             "markdown_path": md_filename,
             "markdown_hash": sha256_of(markdown),
             "word_count": count_words(markdown),
