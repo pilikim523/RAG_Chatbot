@@ -237,7 +237,7 @@ class TestChatHandlerNonCanvas:
     def test_general_domain_in_response(self):
         handler = _make_handler()
         resp = handler.handle(ChatRequest(query="오늘 날씨 어때요?"))
-        assert resp.domain == "general"
+        assert resp.domain == "web"
 
     def test_force_canvas_calls_llm(self):
         llm = _make_llm_client()

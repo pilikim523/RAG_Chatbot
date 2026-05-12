@@ -134,7 +134,11 @@ class TestBuildFilter:
 
 class TestCanvasRetrieverSearch:
     def test_returns_search_results(self):
-        hits = [_make_hit(score=0.9), _make_hit(score=0.8)]
+        # source_url이 다른 2개 hit → dedup 후 2개 반환
+        hits = [
+            _make_hit(source_url=BASE_URL + "/a", score=0.9),
+            _make_hit(source_url=BASE_URL + "/b", score=0.8),
+        ]
         retriever = _make_retriever(hits)
         results = retriever.search("assignment submission")
         assert len(results) == 2
@@ -156,18 +160,24 @@ class TestCanvasRetrieverSearch:
         assert results == []
 
     def test_results_ordered_by_score(self):
-        hits = [_make_hit(score=0.9), _make_hit(score=0.7), _make_hit(score=0.85)]
+        # source_url이 다른 3개 → dedup 후 score 내림차순
+        hits = [
+            _make_hit(source_url=BASE_URL + "/x", score=0.9),
+            _make_hit(source_url=BASE_URL + "/y", score=0.7),
+            _make_hit(source_url=BASE_URL + "/z", score=0.85),
+        ]
         retriever = _make_retriever(hits)
         results = retriever.search("query")
         assert results[0].score == 0.9
-        assert results[1].score == 0.7
+        assert results[1].score == 0.85
 
     def test_passes_top_k_to_client(self):
+        # retriever는 dedup을 위해 fetch_k = min(top_k * 3, 60) 으로 요청
         client = _make_client()
         retriever = CanvasRetriever(FakeEmbedder(), client, "canvas_guides")
         retriever.search("query", top_k=3)
         call_kwargs = client.query_points.call_args[1]
-        assert call_kwargs["limit"] == 3
+        assert call_kwargs["limit"] == min(3 * 3, 60)  # fetch_k = 9
 
     def test_passes_role_filter_when_set(self):
         client = _make_client()

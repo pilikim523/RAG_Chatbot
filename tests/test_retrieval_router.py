@@ -133,14 +133,14 @@ class TestDomainRouter:
         d = self.router.route("assignment submission help")
         assert len(d.matched_keywords) > 0
 
-    # General fallback
-    def test_unrelated_query_routes_to_general(self):
+    # General fallback (web으로 라우팅)
+    def test_unrelated_query_routes_to_web(self):
         d = self.router.route("오늘 날씨 어때요?")
-        assert d.domain == "general"
+        assert d.domain == "web"
 
-    def test_empty_query_routes_to_general(self):
+    def test_empty_query_routes_to_web(self):
         d = self.router.route("")
-        assert d.domain == "general"
+        assert d.domain == "web"
 
     # force_domain
     def test_force_canvas_overrides_detection(self):
@@ -173,7 +173,7 @@ class TestRouteQuery:
         assert route_query("How do I use gradebook?").domain == "canvas"
 
     def test_general_query(self):
-        assert route_query("내일 회의 몇 시에요?").domain == "general"
+        assert route_query("내일 회의 몇 시에요?").domain == "web"
 
     def test_force_domain(self):
         d = route_query("anything", force_domain="canvas")

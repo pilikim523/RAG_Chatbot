@@ -137,7 +137,8 @@ class TestGooverContextCanvas:
 # ---------------------------------------------------------------------------
 
 class TestGooverContextNonCanvas:
-    def test_general_no_llm_call(self):
+    def test_web_domain_calls_llm(self):
+        # web 도메인은 웹 검색 컨텍스트로 LLM을 호출함
         llm = _make_llm()
         ctx = GooverContext(
             retriever=_make_retriever(),
@@ -145,13 +146,13 @@ class TestGooverContextNonCanvas:
             llm_model="m",
         )
         ctx.chat("오늘 날씨 어때요?")
-        assert not llm.chat.completions.create.called
+        assert llm.chat.completions.create.called
 
-    def test_general_returns_redirect_answer(self):
+    def test_web_domain_returns_answer(self):
         ctx = _make_ctx()
         resp = ctx.chat("오늘 날씨 어때요?")
-        assert resp.answer == _NOT_CANVAS_ANSWER
-        assert resp.domain == "general"
+        assert resp.answer  # LLM 응답이 있어야 함
+        assert resp.domain == "web"
 
     def test_force_canvas_calls_llm(self):
         llm = _make_llm()
@@ -222,11 +223,11 @@ class TestGooverContextHistory:
         # system(1) + max 2*2 history turns + current(1) = at most 8
         assert len(last_messages) <= 1 + (2 * 2) + 1
 
-    def test_general_turns_also_recorded(self):
+    def test_web_turns_also_recorded(self):
         ctx = _make_ctx()
         ctx.chat("오늘 날씨?")
         assert len(ctx.history) == 2
-        assert ctx.history[1].content == _NOT_CANVAS_ANSWER
+        assert ctx.history[1].content  # LLM 응답이 기록되어야 함
 
     def test_history_returns_copy(self):
         ctx = _make_ctx(results=[_make_search_result()])
