@@ -24,6 +24,10 @@ data/eval/reports/
 # Qdrant 로컬 스토리지 (서버에서 재색인)
 qdrant_storage/
 
+# Docker 볼륨 데이터
+postgres_data/
+searxng_data/
+
 # Claude 메모리 (개인 설정)
 .claude/projects/
 
