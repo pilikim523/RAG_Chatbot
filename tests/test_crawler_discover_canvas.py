@@ -1,4 +1,4 @@
-"""Tests for src/crawler/discover.py.
+"""Tests for src/crawler/discover_canvas.py.
 
 Fixtures use the real community.instructure.com URL structure:
   /en/all-guides
@@ -14,7 +14,7 @@ import httpx
 import pytest
 import respx
 
-from src.crawler.discover import (
+from src.crawler.discover_canvas import (
     collection_slug_from_url,
     discover,
     extract_canonical,

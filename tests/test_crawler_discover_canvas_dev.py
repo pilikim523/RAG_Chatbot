@@ -1,5 +1,5 @@
 """
-Tests for src/crawler/discover_developer.py.
+Tests for src/crawler/discover_canvas_dev.py.
 
 All HTTP calls are intercepted with respx so no network access is required.
 """
@@ -12,7 +12,7 @@ import httpx
 import pytest
 import respx
 
-from src.crawler.discover_developer import (
+from src.crawler.discover_canvas_dev import (
     ALLOWED_HOSTNAME,
     SITEMAP_URL,
     category_from_path,
