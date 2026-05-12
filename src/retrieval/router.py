@@ -42,6 +42,7 @@ _CANVAS_KEYWORDS_EN: frozenset[str] = frozenset({
     "lti", "sis", "commons", "catalog",
     # Sub-products
     "canvas studio", "canvas catalog", "canvas commons",
+    "canvas career", "career",
     # Assignment date terminology
     "due date", "availability date", "available from", "available until",
     "lock date", "unlock date", "late submission", "late policy",
@@ -57,7 +58,6 @@ _CANVAS_KEYWORDS_EN: frozenset[str] = frozenset({
     "canvas api", "canvas lms api", "instructure api",
     "parchment", "elevate", "impact", "learnplatform",
     "mastery connect", "mastery item bank",
-    "canvas career", "canvas catalog", "canvas commons",
     "swagger", "openapi", "scorm", "xapi",
     # Video CMS (routes to Panopto by default)
     "cms", "vcms", "panopto",
@@ -79,6 +79,8 @@ _CANVAS_KEYWORDS_KO: frozenset[str] = frozenset({
     # 개발자/API 관련
     "인증", "액세스 토큰", "엔드포인트", "웹훅",
     "데이터 접근", "데이터 동기화", "페이지네이션",
+    # Canvas Career
+    "커리어", "캔버스 커리어",
     # Video CMS / Panopto
     "영상관리", "비디오관리",
     "파놉토",
